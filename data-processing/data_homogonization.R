@@ -69,6 +69,24 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   # set the file reference to the identified directory
   setwd(directoryName)
   
+  
+  # OUTPUT DIRECTORY
+  
+  # create a temporary, local workspace to receive script output use a default
+  # directory path is one is not provided
+  if(missing(temporaryDirectory)) {
+    temporaryDirectory <- '~/Desktop/temp_som_outspace/'
+  }
+  
+  # create the receiving directory if it does not exist; delete the contents if
+  # it does exist (may want to revisit whether this is desired behavior)
+  if(!dir.exists(temporaryDirectory)) {
+    dir.create(temporaryDirectory)
+  } else {
+    file.remove(file.path(temporaryDirectory, list.files(temporaryDirectory))) 
+  }
+  
+  
   # GOOGLE DRIVE DIRECTORY
   
   # access Google directory id for reference
@@ -78,6 +96,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   
   # list files in Google directory 
   dirFileNames <- list.files(directoryName) 
+  
   
   # KEY FILE  
   
@@ -112,9 +131,30 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   if (exists('mvc1')) { missingValueCode = mvc1}
   if (exists('mvc2')) { missingValueCode = mvc2}
   if (exists('mvc1') && exists('mvc2')) { missingValueCode = c(paste(mvc1, mvc2))}
-
   
-  # DATA FILES
+  
+  # GENERATE A NOTE FILE FROM THE KEY FILE
+  
+  # create a note name with path to output directory, name of key file + _HMGZD_NOTES.csv
+  notesFileName <- paste0(temporaryDirectory, file_path_sans_ext(keyFileName), "_HMGZD_NOTES.csv")
+  
+  # capture notes from location and profile key-file tabs and write to file
+  write_csv( 
+    bind_rows(
+      locationData %>% 
+        filter(!is.na(var_notes)) %>% 
+        mutate(source = "location") %>% 
+        select(source, Var_long, var, var_notes),
+      profileData %>% 
+        filter(!is.na(Notes) | !is.na(Comment)) %>% 
+        unite(col = var_notes, Notes, Comment) %>% 
+        mutate(source = "profile") %>% 
+        select(source, Var_long, var, var_notes)
+    ), notesFileName 
+  )
+  
+  
+  # DATA FILE(S)
   
   # import all (data + key) files from the Google dir
   googleDirData <- lapply(dirFileNames, 
@@ -142,7 +182,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   # pull targeted vars from each data frame based on header_names in key file
   googleDirData <- map(googleDirData, select, one_of(varsToKeep))
   
-  # rename investigator names to key file names
+  # rename investigator-supplied names to key-file (standardized) names
   googleDirData <- lapply(googleDirData, function(frame) { 
     setNames(frame, profileData$var[match(names(frame), profileData$header_name)]) })
   
@@ -159,42 +199,34 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   names(googleDirData) <- paste0(str_extract(names(googleDirData), "^[^\\.]*"), "_HMGZD")
   
   
-  # DATA AND FILE OUTPUT 
+  # DATA FILE OUTPUT
   
-  # create a temporary, local workspace to receive script output
+  # We can write the output directly to the working/target Google Directory. The
+  # problem with that approach is that, even with a csv or otherwise file
+  # extension, Google sees each added files as a text file. These files open
+  # with Google Sheets so are fully functional. The problem is that opening the
+  # file (with Google Sheets for example) creates a copy of the file so you end
+  # up with a Google Sheets version and the original version. To avoid confusion
+  # or processing headaches created by these dual files, we will write the
+  # output to a temporary, local directory then use drive_upload to add the
+  # files to the working/target Google Directory. drive_upload has the option to
+  # declare a file type so we can make explicit to Google Drive that the added
+  # files are of type spreadsheet, for example, which allows us to avoid the
+  # duplicate file problem.
   
-  # use a default directory path is one is not provided
-  if(missing(temporaryDirectory)) {
-    temporaryDirectory <- '~/Desktop/temp_som_outspace/'
-  }
-  
-  # delete the directory if it already existss
-  if(dir.exists(temporaryDirectory)) {
-    unlink(temporaryDirectory, recursive = T)
-  }
-  
-  # create the receiving directory
-  dir.create(temporaryDirectory)
-  
-  # write files to the temporary directory
-  googleDirData %>%
-    names(.) %>%
-    map(~ write_csv(googleDirData[[.]], paste0(temporaryDirectory, ., ".csv")))
-  
-  # write files to the synced Google directory - this works but even with the
-  # csv extension, the output files are viewed as text files by Google and,
-  # though open- and edit-able with Google Sheets, you run into that problem of
-  # Google creating a new googlesheet file. To minimize this confusion caused by
-  # writing directly to Google Drive, we will write these files to a local
-  # directory and then add them to Google Drive using additional parameters
-  # available to us with the R googledrive package.
-  
+  # Approach to write output csv files directly to target Google Directory - not
+  # used!
   # googleDirData %>%
   #   names(.) %>%
   #   map(~ write_csv(googleDirData[[.]], paste0(directoryName, "/", ., ".csv")))
   
-  # write the files from the temporary directory to the appropriate Google
-  # Directory
+  # write processed files to the temporary directory
+  googleDirData %>%
+    names(.) %>%
+    map(~ write_csv(googleDirData[[.]], paste0(temporaryDirectory, ., ".csv")))
+  
+  
+  # UPLOAD TO GOOGLE DRIVE
   
   # list the files added to the temporary output space
   filesToUpload <- list.files(path=temporaryDirectory,
