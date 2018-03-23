@@ -17,11 +17,8 @@ library(tools)
 # warnings to file
 # on-run warns for: 
   # multiple header_names of same name
-# need to clear temporaryWorkspace between runs
-# Run Sarah's CRD E133 first!
-
-# generic function ----
-
+# need to clear temporaryWorkspace between runs - done!
+# Run Sarah's CRD E133 first
 
 #' @title data_homogonization
 #'
@@ -70,7 +67,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   setwd(directoryName)
   
   
-  # OUTPUT DIRECTORY
+  # OUTPUT DIRECTORY ----
   
   # create a temporary, local workspace to receive script output use a default
   # directory path is one is not provided
@@ -87,7 +84,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   }
   
   
-  # GOOGLE DRIVE DIRECTORY
+  # GOOGLE DRIVE DIRECTORY ----
   
   # access Google directory id for reference
   # not avaialable locally, must be pulled from Google API
@@ -98,7 +95,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   dirFileNames <- list.files(directoryName) 
   
   
-  # KEY FILE  
+  # KEY FILE ----
   
   # isolate key-key and extract details in location and profile tabs
   keyFileName <- grep("key", dirFileNames, ignore.case = T, value = T)
@@ -133,7 +130,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   if (exists('mvc1') && exists('mvc2')) { missingValueCode = c(paste(mvc1, mvc2))}
   
   
-  # GENERATE A NOTE FILE FROM THE KEY FILE
+  # GENERATE A NOTE FILE FROM THE KEY FILE ----
   
   # create a note name with path to output directory, name of key file + _HMGZD_NOTES.csv
   notesFileName <- paste0(temporaryDirectory, file_path_sans_ext(keyFileName), "_HMGZD_NOTES.csv")
@@ -147,14 +144,14 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
         select(source, Var_long, var, var_notes),
       profileData %>% 
         filter(!is.na(Notes) | !is.na(Comment)) %>% 
-        unite(col = var_notes, Notes, Comment) %>% 
+        unite(col = var_notes, Notes, Comment, sep = ";") %>% 
         mutate(source = "profile") %>% 
         select(source, Var_long, var, var_notes)
     ), notesFileName 
   )
   
   
-  # DATA FILE(S)
+  # DATA FILE(S) ----
   
   # import all (data + key) files from the Google dir
   googleDirData <- lapply(dirFileNames, 
@@ -199,11 +196,11 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   names(googleDirData) <- paste0(str_extract(names(googleDirData), "^[^\\.]*"), "_HMGZD")
   
   
-  # DATA FILE OUTPUT
+  # DATA FILE OUTPUT ----
   
   # We can write the output directly to the working/target Google Directory. The
   # problem with that approach is that, even with a csv or otherwise file
-  # extension, Google sees each added files as a text file. These files open
+  # extension, Google sees each added file as a text file. These files open
   # with Google Sheets so are fully functional. The problem is that opening the
   # file (with Google Sheets for example) creates a copy of the file so you end
   # up with a Google Sheets version and the original version. To avoid confusion
@@ -226,7 +223,7 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
     map(~ write_csv(googleDirData[[.]], paste0(temporaryDirectory, ., ".csv")))
   
   
-  # UPLOAD TO GOOGLE DRIVE
+  # UPLOAD TO GOOGLE DRIVE ----
   
   # list the files added to the temporary output space
   filesToUpload <- list.files(path=temporaryDirectory,
