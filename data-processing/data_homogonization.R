@@ -4,7 +4,8 @@ library(googledrive)
 library(googlesheets)
 library(tidyverse)
 library(readxl)
-library(readODS)
+if(!grep("Darwin", Sys.info()["sysname"])) { 
+  library(readODS) }
 library(tools)
 
 
@@ -52,6 +53,18 @@ library(tools)
 
 # batch load synced googlesheets file ingestion function
 batch_load <- function(fileName, skipRows, missingValueCode) {
+  if (file_ext(fileName) == 'ods') {
+    dataFile <- read_ods(fileName, skip = skipRows, na = missingValueCode)
+  } else if (file_ext(fileName) == 'csv') {
+    dataFile <- read_csv(fileName, skip = skipRows, na = missingValueCode)
+  } else if (grepl('xls', file_ext(fileName))) {
+    dataFile <- read_excel(fileName, skip = skipRows, na = missingValueCode)
+  } else { print(" --- data file type compatability error ---")}
+}
+
+# load synced googlesheets that will have varying file type depending on OS
+# connection to drive
+file_load <- function(fileName, skipRows, missingValueCode) {
   if (file_ext(fileName) == 'ods') {
     dataFile <- read_ods(fileName, skip = skipRows, na = missingValueCode)
   } else if (file_ext(fileName) == 'csv') {
@@ -241,8 +254,11 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
 }
 
 
+# linux
 directoryName <- '/home/srearl/googleDrive/LTER-SOM/Data_downloads/UMBS_DIRT/SOIL_CN/UMBS_DIRT_C_N_by_Plot_2004_2014'
 
+# mac
+directoryName <- '~/Google Drive/LTER-SOM/Data_downloads/UMBS_DIRT/SOIL_CN/UMBS_DIRT_C_N_by_Plot_2004_2014/'
 
 # tempToGoogleDrive <- function() {
 #   
