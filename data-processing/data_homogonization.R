@@ -4,7 +4,7 @@ library(googledrive)
 library(googlesheets)
 library(tidyverse)
 library(readxl)
-if(!grep("Darwin", Sys.info()["sysname"])) { 
+if(!grepl("Darwin", Sys.info()["sysname"])) { 
   library(readODS) }
 library(tools)
 
@@ -62,17 +62,24 @@ batch_load <- function(fileName, skipRows, missingValueCode) {
   } else { print(" --- data file type compatability error ---")}
 }
 
-# load synced googlesheets that will have varying file type depending on OS
-# connection to drive
-file_load <- function(fileName, skipRows, missingValueCode) {
-  if (file_ext(fileName) == 'ods') {
-    dataFile <- read_ods(fileName, skip = skipRows, na = missingValueCode)
-  } else if (file_ext(fileName) == 'csv') {
-    dataFile <- read_csv(fileName, skip = skipRows, na = missingValueCode)
-  } else if (grepl('xls', file_ext(fileName))) {
-    dataFile <- read_excel(fileName, skip = skipRows, na = missingValueCode)
-  } else { print(" --- data file type compatability error ---")}
-}
+# access units table from google sheets for units conversion
+unitsConversionFile <- gs_title('units_translation_table')
+
+# units conversion table from google - location
+unitsConversionLocation <- gs_read(unitsConversionFile, ws = 1) %>% 
+  filter(!is.na(Unit)) %>% 
+  select(unit_levels = Unit, Var_long, var, givenUnit, unitConversionFactor)
+
+# units conversion table from google - profile
+unitsConversionProfile <- gs_read(unitsConversionFile, ws = 2,
+                                  range = 'A1:H546') %>% # ignore fractions for now 
+  filter(!is.na(unit_levels)) %>% 
+  select(unit_levels, Var_long, var, givenUnit, unitConversionFactor)
+
+
+
+
+
 
 data_homogonization <- function(directoryName, temporaryDirectory) {
   
@@ -122,6 +129,43 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   profileData <- read_ods(keyFileName, sheet = 2) %>% 
     filter(!is.na(header_name))
   
+  # generate a note file from the key file
+  
+  # create a note name with path to output directory, name of key file + _HMGZD_NOTES.csv
+  notesFileName <- paste0(temporaryDirectory, file_path_sans_ext(keyFileName), "_HMGZD_NOTES.csv")
+  
+  # capture notes from location and profile key-file tabs and write to file
+  notes <- bind_rows(
+    locationData %>% 
+      filter(!is.na(var_notes)) %>% 
+      mutate(source = "location") %>% 
+      select(source, Var_long, var, var_notes),
+    profileData %>% 
+      filter(!is.na(Notes) | !is.na(Comment)) %>% 
+      unite(col = var_notes, Notes, Comment, sep = ";") %>% 
+      mutate(source = "profile") %>% 
+      select(source, Var_long, var, var_notes)
+  )
+  
+  # OE approach - write file but can we write units conversions first?
+  # write_csv( 
+  #   bind_rows(
+  #     locationData %>% 
+  #       filter(!is.na(var_notes)) %>% 
+  #       mutate(source = "location") %>% 
+  #       select(source, Var_long, var, var_notes),
+  #     profileData %>% 
+  #       filter(!is.na(Notes) | !is.na(Comment)) %>% 
+  #       unite(col = var_notes, Notes, Comment, sep = ";") %>% 
+  #       mutate(source = "profile") %>% 
+  #       select(source, Var_long, var, var_notes)
+  #   ), notesFileName 
+  # )
+  
+  # standardize units of location-level data  
+  # standardize_units_location()
+  source('~/Dropbox/development/standardize_units_location.R')
+  
   # Isolate rows to skip from locationData for data import. This was originally
   # intended to be an input as to the number of rows to skip but it seems to
   # have been interpreted as the row number of the header.
@@ -141,27 +185,6 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   if (exists('mvc1')) { missingValueCode = mvc1}
   if (exists('mvc2')) { missingValueCode = mvc2}
   if (exists('mvc1') && exists('mvc2')) { missingValueCode = c(paste(mvc1, mvc2))}
-  
-  
-  # GENERATE A NOTE FILE FROM THE KEY FILE ----
-  
-  # create a note name with path to output directory, name of key file + _HMGZD_NOTES.csv
-  notesFileName <- paste0(temporaryDirectory, file_path_sans_ext(keyFileName), "_HMGZD_NOTES.csv")
-  
-  # capture notes from location and profile key-file tabs and write to file
-  write_csv( 
-    bind_rows(
-      locationData %>% 
-        filter(!is.na(var_notes)) %>% 
-        mutate(source = "location") %>% 
-        select(source, Var_long, var, var_notes),
-      profileData %>% 
-        filter(!is.na(Notes) | !is.na(Comment)) %>% 
-        unite(col = var_notes, Notes, Comment, sep = ";") %>% 
-        mutate(source = "profile") %>% 
-        select(source, Var_long, var, var_notes)
-    ), notesFileName 
-  )
   
   
   # DATA FILE(S) ----
@@ -195,7 +218,12 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   # rename investigator-supplied names to key-file (standardized) names
   googleDirData <- lapply(googleDirData, function(frame) { 
     setNames(frame, profileData$var[match(names(frame), profileData$header_name)]) })
+ 
+  # standardize units of profile-level data  
+  # standardize_units_profile()
+  source('~/Dropbox/development/standardize_units_profile.R')
   
+ 
   # generate wide data frame of location data
   locationDataWide <- locationData %>% 
     select(var, Value) %>% 
@@ -231,9 +259,14 @@ data_homogonization <- function(directoryName, temporaryDirectory) {
   #   map(~ write_csv(googleDirData[[.]], paste0(directoryName, "/", ., ".csv")))
   
   # write processed files to the temporary directory
-  googleDirData %>%
-    names(.) %>%
-    map(~ write_csv(googleDirData[[.]], paste0(temporaryDirectory, ., ".csv")))
+  
+    # notes
+    write_csv(notes, notesFileName)
+    
+    # data
+    googleDirData %>%
+      names(.) %>%
+      map(~ write_csv(googleDirData[[.]], paste0(temporaryDirectory, ., ".csv")))
   
   
   # UPLOAD TO GOOGLE DRIVE ----
